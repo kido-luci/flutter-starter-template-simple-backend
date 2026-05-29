@@ -226,7 +226,7 @@ func main() {
 		r.Post("/change-password", authMiddleware(issuer, changePasswordHandler(db)))
 	})
 
-	r.Post("/api/upload", uploadHandler())
+	r.Post("/api/upload", authMiddleware(issuer, uploadHandler()))
 
 	registerBookmarkRoutes(r, issuer, bookmarks)
 
