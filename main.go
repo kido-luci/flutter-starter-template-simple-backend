@@ -474,10 +474,18 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorResponse{Code: code, Message: message})
 }
 
+const maxUploadBytes = 10 << 20 // 10 MiB
+
 func uploadHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Limit body size to 10MB
-		r.ParseMultipartForm(10 << 20)
+		// Enforce a hard cap on the upload. ParseMultipartForm's argument is
+		// only the in-memory spill threshold, not a size limit, so wrap the
+		// body in a MaxBytesReader to actually reject oversized requests.
+		r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+		if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+			writeError(w, http.StatusRequestEntityTooLarge, "file_too_large", "File exceeds the 10MB upload limit.")
+			return
+		}
 		file, handler, err := r.FormFile("file")
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_file", "Failed to get file from form: "+err.Error())
