@@ -230,6 +230,16 @@ func main() {
 
 	registerBookmarkRoutes(r, issuer, bookmarks)
 
+	// Dummy endpoints for frontend integration
+	r.Get("/api/notifications", authMiddleware(issuer, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []map[string]any{})
+	}))
+	r.Patch("/api/notifications/{id}/read", authMiddleware(issuer, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}))
+	r.Get("/api/activity", authMiddleware(issuer, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []map[string]any{})
+	}))
 	log.Printf("listening on %s", addr)
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatal(err)
