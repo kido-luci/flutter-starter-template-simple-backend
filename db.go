@@ -49,6 +49,24 @@ func createSchema(db *sql.DB) error {
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS activities (
+		id TEXT PRIMARY KEY,
+		owner_id TEXT NOT NULL,
+		description TEXT NOT NULL,
+		type TEXT NOT NULL,
+		created_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS notifications (
+		id TEXT PRIMARY KEY,
+		owner_id TEXT NOT NULL,
+		title TEXT NOT NULL,
+		body TEXT NOT NULL,
+		type TEXT NOT NULL,
+		is_read BOOLEAN NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL
+	);
 	`
 	_, err := db.Exec(schema)
 	return err
