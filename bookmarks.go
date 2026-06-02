@@ -129,6 +129,16 @@ func (s *bookmarkStore) create(ownerID string, req bookmarkRequest) (bookmark, e
 		}
 		return bookmark{}, err
 	}
+
+	// Insert Activity and Notification logs
+	actID, _ := randomToken()
+	s.db.Exec("INSERT INTO activities (id, owner_id, description, type, created_at) VALUES (?, ?, ?, ?, ?)",
+		actID, ownerID, "Created a new bookmark '"+b.Title+"'", "bookmark_created", b.CreatedAt)
+
+	notifID, _ := randomToken()
+	s.db.Exec("INSERT INTO notifications (id, owner_id, title, body, type, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		notifID, ownerID, "New Bookmark", "You successfully created the bookmark '"+b.Title+"'.", "system", false, b.CreatedAt)
+
 	return b, nil
 }
 
