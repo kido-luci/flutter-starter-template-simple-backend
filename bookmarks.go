@@ -147,7 +147,7 @@ func (s *bookmarkStore) update(id, ownerID string, req bookmarkRequest) (bookmar
 	if !ok {
 		return bookmark{}, false
 	}
-	
+
 	existing.Title = req.Title
 	existing.URL = req.URL
 	existing.Description = req.Description
@@ -161,7 +161,7 @@ func (s *bookmarkStore) update(id, ownerID string, req bookmarkRequest) (bookmar
 
 	_, err := s.db.Exec("UPDATE bookmarks SET title = ?, url = ?, description = ?, tags = ?, image_urls = ?, video_url = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
 		existing.Title, existing.URL, existing.Description, string(tagsJSON), string(imagesJSON), existing.VideoUrl, existing.UpdatedAt, id, ownerID)
-	
+
 	if err != nil {
 		return bookmark{}, false
 	}
