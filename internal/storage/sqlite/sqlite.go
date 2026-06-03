@@ -3,28 +3,32 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 
 	_ "modernc.org/sqlite"
 )
 
 // Open connects to the SQLite database at dsn, verifies the connection, and
-// applies the schema migrations.
+// applies the schema migrations. The handle is closed on any init failure.
 func Open(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Ping(); err != nil {
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
-	if err := migrate(db); err != nil {
+	if err := migrate(ctx, db); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 	return db, nil
 }
 
-func migrate(db *sql.DB) error {
+func migrate(ctx context.Context, db *sql.DB) error {
 	const schema = `
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
@@ -69,6 +73,6 @@ func migrate(db *sql.DB) error {
 		created_at DATETIME NOT NULL
 	);
 	`
-	_, err := db.Exec(schema)
+	_, err := db.ExecContext(ctx, schema)
 	return err
 }

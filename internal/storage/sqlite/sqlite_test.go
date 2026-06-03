@@ -147,6 +147,18 @@ func TestBookmarkRepository_NotFoundAndConflictAndOwnerScoping(t *testing.T) {
 	}
 }
 
+func TestBookmarkRepository_UpdateMissingRowIsNotFound(t *testing.T) {
+	repo := sqlite.NewBookmarkRepository(newTestDB(t))
+	now := time.Now().UTC()
+	b := domain.Bookmark{ID: "bm1", OwnerID: "owner-1", Title: "T", URL: "https://x", Tags: []string{}, ImageURLs: []string{}, CreatedAt: now, UpdatedAt: now}
+
+	// Updating a row that was never created must report not-found rather than
+	// silently succeeding (guards the Get-then-Update race).
+	if err := repo.Update(b); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("Update of missing row err = %v, want domain.ErrNotFound", err)
+	}
+}
+
 func TestRefreshTokenRepository_RotateConsumesOldToken(t *testing.T) {
 	db := newTestDB(t)
 	users := sqlite.NewUserRepository(db)

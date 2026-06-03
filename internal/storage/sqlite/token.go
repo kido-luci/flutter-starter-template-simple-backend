@@ -35,7 +35,7 @@ func (r *RefreshTokenRepository) Rotate(oldToken, newToken string, expiresAt tim
 	if err != nil {
 		return domain.User{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var userID string
 	var oldExpiresAt time.Time
@@ -49,8 +49,17 @@ func (r *RefreshTokenRepository) Rotate(oldToken, newToken string, expiresAt tim
 		return domain.User{}, err
 	}
 
-	if _, err := tx.Exec("DELETE FROM refresh_tokens WHERE token = ?", oldToken); err != nil {
+	// Verify the delete consumed the row. Under concurrent refreshes both
+	// transactions may pass the lookup above; only the one whose DELETE removes
+	// the row may proceed, preserving the single-use guarantee.
+	res, err := tx.Exec("DELETE FROM refresh_tokens WHERE token = ?", oldToken)
+	if err != nil {
 		return domain.User{}, err
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		return domain.User{}, err
+	} else if affected != 1 {
+		return domain.User{}, domain.RefreshError{Message: "refresh token is not recognized"}
 	}
 
 	if time.Now().After(oldExpiresAt) {
@@ -76,5 +85,7 @@ func (r *RefreshTokenRepository) Rotate(oldToken, newToken string, expiresAt tim
 }
 
 func (r *RefreshTokenRepository) Revoke(token string) {
-	r.db.Exec("DELETE FROM refresh_tokens WHERE token = ?", token)
+	// Sign-out is best-effort: the client discards its tokens regardless, so a
+	// failed delete must not block it. Errors are intentionally ignored.
+	_, _ = r.db.Exec("DELETE FROM refresh_tokens WHERE token = ?", token)
 }

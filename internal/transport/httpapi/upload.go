@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +20,14 @@ func (rt *Router) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// MaxBytesReader to actually reject oversized requests.
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "file_too_large", "File exceeds the 10MB upload limit.")
+		// ParseMultipartForm also fails on malformed/non-multipart bodies; only
+		// an exceeded MaxBytesReader limit warrants 413.
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "file_too_large", "File exceeds the 10MB upload limit.")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid_body", "Request body must be valid multipart/form-data.")
+		}
 		return
 	}
 	file, handler, err := r.FormFile("file")

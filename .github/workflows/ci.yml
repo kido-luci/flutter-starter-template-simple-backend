@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       # Install the Go toolchain pinned by go.mod's `go` directive, so CI and
       # the repo never drift. Bump go.mod to upgrade. Module cache is restored

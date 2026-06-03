@@ -100,11 +100,13 @@ func (s *AuthService) Refresh(refreshToken string) (domain.AuthResult, error) {
 	}
 	u, err := s.refreshTokens.Rotate(refreshToken, newRefresh, s.now().Add(s.refreshTTL))
 	if err != nil {
+		// Invalid/expired tokens are RefreshError (-> 401); any other failure
+		// (e.g. a DB outage) propagates unchanged so transport maps it to 500.
 		var re domain.RefreshError
 		if errors.As(err, &re) {
 			return domain.AuthResult{}, re
 		}
-		return domain.AuthResult{}, domain.RefreshError{Message: err.Error()}
+		return domain.AuthResult{}, err
 	}
 	access, err := s.tokens.Sign(u)
 	if err != nil {

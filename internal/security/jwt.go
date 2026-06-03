@@ -42,7 +42,9 @@ func (j *JWTIssuer) Sign(u domain.User) (string, error) {
 func (j *JWTIssuer) Parse(raw string) (domain.User, error) {
 	claims := &accessClaims{}
 	_, err := jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+		// Pin the exact algorithm we sign with, rather than accepting any HMAC
+		// variant (HS384/HS512), to avoid algorithm-confusion attacks.
+		if t.Method == nil || t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, errors.New("unexpected signing method")
 		}
 		return j.secret, nil

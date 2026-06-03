@@ -78,11 +78,21 @@ func (r *BookmarkRepository) Create(b domain.Bookmark) error {
 func (r *BookmarkRepository) Update(b domain.Bookmark) error {
 	tags, _ := json.Marshal(b.Tags)
 	images, _ := json.Marshal(b.ImageURLs)
-	_, err := r.db.Exec(
+	res, err := r.db.Exec(
 		"UPDATE bookmarks SET title = ?, url = ?, description = ?, tags = ?, image_urls = ?, video_url = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
 		b.Title, b.URL, b.Description, string(tags), string(images), b.VideoURL, b.UpdatedAt, b.ID, b.OwnerID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *BookmarkRepository) Delete(id, ownerID string) error {
@@ -115,8 +125,12 @@ func scanBookmark(s scanner) (domain.Bookmark, error) {
 	); err != nil {
 		return domain.Bookmark{}, err
 	}
-	_ = json.Unmarshal([]byte(tagsJSON), &b.Tags)
-	_ = json.Unmarshal([]byte(imagesJSON), &b.ImageURLs)
+	if err := json.Unmarshal([]byte(tagsJSON), &b.Tags); err != nil {
+		return domain.Bookmark{}, err
+	}
+	if err := json.Unmarshal([]byte(imagesJSON), &b.ImageURLs); err != nil {
+		return domain.Bookmark{}, err
+	}
 	if b.Tags == nil {
 		b.Tags = []string{}
 	}

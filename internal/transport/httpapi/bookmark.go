@@ -23,11 +23,14 @@ func (rt *Router) handleListBookmarks(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleGetBookmark(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
 	b, err := rt.bookmarks.Get(chi.URLParam(r, "id"), u.ID)
-	if err != nil {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Bookmark not found.")
-		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "db_error", "Failed to fetch bookmark.")
+	default:
+		writeJSON(w, http.StatusOK, toBookmarkDTO(b))
 	}
-	writeJSON(w, http.StatusOK, toBookmarkDTO(b))
 }
 
 func (rt *Router) handleCreateBookmark(w http.ResponseWriter, r *http.Request) {
@@ -74,9 +77,13 @@ func (rt *Router) handleUpdateBookmark(w http.ResponseWriter, r *http.Request) {
 
 func (rt *Router) handleDeleteBookmark(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	if err := rt.bookmarks.Delete(chi.URLParam(r, "id"), u.ID); err != nil {
+	err := rt.bookmarks.Delete(chi.URLParam(r, "id"), u.ID)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Bookmark not found.")
-		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete bookmark.")
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
