@@ -6,16 +6,19 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
+	"simple_backend_server/internal/security"
+	"simple_backend_server/internal/service"
+	"simple_backend_server/internal/storage/sqlite"
+	"simple_backend_server/internal/transport/httpapi"
+)
+
+const (
+	accessTokenTTL  = 15 * time.Minute
+	refreshTokenTTL = 30 * 24 * time.Hour
 )
 
 func main() {
-	addr := os.Getenv("ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
+	addr := envOr("ADDR", ":8080")
 
 	secret := []byte(os.Getenv("JWT_SECRET"))
 	if len(secret) == 0 {
@@ -23,56 +26,41 @@ func main() {
 		secret = []byte("dev-only-secret-do-not-use-in-prod")
 	}
 
-	db, err := initDB("data.db")
+	db, err := sqlite.Open("data.db")
 	if err != nil {
 		log.Fatalf("failed to initialize db: %v", err)
 	}
 	defer db.Close()
 
-	issuer := newJWTIssuer(secret)
-	bookmarks := newBookmarkStore(db)
+	// Persistence adapters (storage layer).
+	users := sqlite.NewUserRepository(db)
+	refreshTokens := sqlite.NewRefreshTokenRepository(db)
+	bookmarksRepo := sqlite.NewBookmarkRepository(db)
+	notificationsRepo := sqlite.NewNotificationRepository(db)
+	activitiesRepo := sqlite.NewActivityRepository(db)
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(15 * time.Second))
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-		AllowCredentials: false,
-		MaxAge:           300,
-	}))
+	// Crypto adapters (security layer).
+	issuer := security.NewJWTIssuer(secret, accessTokenTTL)
+	hasher := security.BcryptHasher{}
+	ids := security.RandomID{}
 
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	// Use cases (service layer).
+	auth := service.NewAuthService(users, refreshTokens, hasher, issuer, ids, accessTokenTTL, refreshTokenTTL)
+	bookmarks := service.NewBookmarkService(bookmarksRepo, activitiesRepo, notificationsRepo, ids)
+	notifications := service.NewNotificationService(notificationsRepo, activitiesRepo)
 
-	// Serve static files from the uploads directory
-	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
-
-	r.Route("/api/auth", func(r chi.Router) {
-		r.Post("/register", registerHandler(issuer, db))
-		r.Post("/sign-in", signInHandler(issuer, db))
-		r.Post("/refresh", refreshHandler(issuer, db))
-		r.Post("/sign-out", signOutHandler(db))
-		r.Get("/me", authMiddleware(issuer, meHandler()))
-		r.Post("/change-password", authMiddleware(issuer, changePasswordHandler(db)))
-	})
-
-	r.Post("/api/upload", authMiddleware(issuer, uploadHandler()))
-
-	registerBookmarkRoutes(r, issuer, bookmarks)
-
-	// Endpoints for notifications and activity
-	r.Get("/api/notifications", authMiddleware(issuer, getNotificationsHandler(db)))
-	r.Patch("/api/notifications/{id}/read", authMiddleware(issuer, markNotificationReadHandler(db)))
-	r.Get("/api/activity", authMiddleware(issuer, getActivityHandler(db)))
+	// HTTP transport (interface-adapter layer).
+	handler := httpapi.New(auth, bookmarks, notifications, issuer, ids, "./uploads")
 
 	log.Printf("listening on %s", addr)
-	if err := http.ListenAndServe(addr, r); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

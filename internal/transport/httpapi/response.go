@@ -1,4 +1,4 @@
-package main
+package httpapi
 
 import (
 	"encoding/json"
@@ -12,7 +12,6 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-// writeJSON encodes body as JSON and writes it with the given status code.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -21,7 +20,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	}
 }
 
-// writeError writes a structured errorResponse with the given status code.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorResponse{Code: code, Message: message})
 }

@@ -1,4 +1,6 @@
-package main
+// Package sqlite provides SQLite-backed implementations of the domain
+// repository interfaces.
+package sqlite
 
 import (
 	"database/sql"
@@ -6,25 +8,24 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func initDB(dataSourceName string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dataSourceName)
+// Open connects to the SQLite database at dsn, verifies the connection, and
+// applies the schema migrations.
+func Open(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-
-	if err := createSchema(db); err != nil {
+	if err := migrate(db); err != nil {
 		return nil, err
 	}
-
 	return db, nil
 }
 
-func createSchema(db *sql.DB) error {
-	schema := `
+func migrate(db *sql.DB) error {
+	const schema = `
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
