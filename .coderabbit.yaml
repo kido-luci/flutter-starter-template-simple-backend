@@ -4,9 +4,8 @@
 language: en-US
 tone_instructions: >-
   Be concise and pragmatic. Prioritize correctness, error handling, and the
-  clean-architecture layering rules over style nits. Skip formatting comments;
-  gofmt and go vet already enforce style. Flag ignored errors, missing context
-  propagation, SQL injection, and unsafe concurrency.
+  clean-architecture layering rules. gofmt and vet handle style. Flag ignored
+  errors, SQL injection, and unsafe concurrency.
 
 reviews:
   profile: chill
