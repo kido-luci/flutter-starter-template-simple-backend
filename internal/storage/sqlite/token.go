@@ -27,8 +27,9 @@ func (r *RefreshTokenRepository) Issue(token, userID string, expiresAt time.Time
 	return err
 }
 
-// Rotate consumes oldToken and stores newToken atomically. The old token is
-// always deleted (single-use), even when expired.
+// Rotate consumes oldToken and stores newToken atomically. On success the old
+// token is deleted and the new one persisted in a single transaction; if the
+// token is unknown or expired the transaction rolls back and nothing changes.
 func (r *RefreshTokenRepository) Rotate(oldToken, newToken string, expiresAt time.Time) (domain.User, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
