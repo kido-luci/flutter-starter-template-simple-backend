@@ -18,6 +18,9 @@ simple_backend_server
 *.db-shm
 *.db-wal
 
+# Runtime uploads
+uploads/
+
 # Dependency directories (although modules are used, sometimes vendor is used)
 vendor/
 
