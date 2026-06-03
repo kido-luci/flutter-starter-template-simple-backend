@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for the simple_backend_server Go module.
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+language: en-US
+tone_instructions: >-
+  Be concise and pragmatic. Prioritize correctness, error handling, and the
+  clean-architecture layering rules. gofmt and vet handle style. Flag ignored
+  errors, SQL injection, and unsafe concurrency.
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  # Don't waste review budget on build output, the dev database, or checksums.
+  path_filters:
+    - "!**/*.db"
+    - "!**/*.db-journal"
+    - "!**/*.db-shm"
+    - "!**/*.db-wal"
+    - "!uploads/**"
+    - "!go.sum"
+    - "!vendor/**"
+
+  # Clean-architecture guidance fed to the reviewer. Dependencies point inward:
+  # transport -> service -> domain; infrastructure (storage, security)
+  # implements domain/service ports and is wired only in main.go.
+  path_instructions:
+    - path: "internal/domain/**"
+      instructions: >-
+        The domain layer holds pure entities, repository/port interfaces, and
+        sentinel errors. It must import only the standard library — flag any
+        import of chi, database/sql, jwt, bcrypt, or other outer-layer or
+        framework packages, and any JSON/DB struct tags leaking onto entities.
+    - path: "internal/service/**"
+      instructions: >-
+        Use cases orchestrate business rules and may depend only on the domain
+        package and the locally-defined ports (PasswordHasher, TokenIssuer,
+        IDGenerator). Flag direct use of HTTP, SQL, JWT, or bcrypt here, and any
+        business logic that belongs in a service but is leaking into transport
+        or storage. Errors should be domain sentinels or typed errors, not bare
+        strings.
+    - path: "internal/storage/**"
+      instructions: >-
+        Repository implementations only. Map driver errors to domain sentinels
+        (sql.ErrNoRows -> domain.ErrNotFound, UNIQUE violations ->
+        domain.ErrConflict). Use parameterized queries (never string-built SQL),
+        close rows, and check rows.Err(). No business logic here.
+    - path: "internal/transport/**"
+      instructions: >-
+        HTTP handlers must stay thin: decode -> call a service -> encode. This
+        layer owns the JSON wire format (DTOs) and the domain-error -> HTTP
+        status mapping; the API contract (routes, field names, status codes)
+        must not change without intent. Keep business logic out of handlers.
+    - path: "internal/security/**"
+      instructions: >-
+        Crypto/ID adapters implementing the service ports. Flag weak hashing,
+        hardcoded secrets, predictable token generation, or signing-method
+        confusion in JWT parsing.
+    - path: "**/*_test.go"
+      instructions: >-
+        Expect table-driven tests and the Arrange-Act-Assert pattern. Prefer
+        in-memory fakes over mocking frameworks. Flag missing coverage for new
+        service or storage logic, and assertions on error type via errors.Is /
+        errors.As rather than string matching.
+    - path: "**/*.go"
+      instructions: >-
+        Idiomatic Go: wrap errors with %w and don't swallow them, propagate
+        context.Context where available, guard goroutines against leaks and data
+        races, and use defer for cleanup. Avoid panics in request paths.
+
+  auto_title_instructions: >-
+    Use Conventional Commit style (feat:, fix:, refactor:, chore:, test:).
+
+  tools:
+    github-checks:
+      enabled: true
+    golangci-lint:
+      enabled: true
+
+chat:
+  auto_reply: true
