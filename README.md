@@ -15,7 +15,7 @@ services.
 Data is persisted to a local **SQLite** database file (`data.db`) via the pure-Go
 [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) driver — no CGO and
 no external database required. The schema (users, refresh tokens, bookmarks,
-activities, notifications) is created automatically on startup, and data
+collections, activities, notifications) is created automatically on startup, and data
 survives restarts. Delete `data.db` to reset all state. The file and the runtime
 `uploads/` directory are git-ignored.
 
@@ -115,6 +115,24 @@ CRUD scoped to the authenticated user.
 - `DELETE /api/bookmarks/{id}` — delete a bookmark; returns `204`.
 
 Creating a bookmark also records an entry in the activity feed and a
+notification for the owner.
+
+### Collections (`/api/collections`) _(auth required)_
+
+CRUD scoped to the authenticated user. A collection is a named folder whose
+membership is a list of bookmark ids.
+
+- `GET /api/collections` — list the current user's collections.
+- `POST /api/collections` — create a collection; returns `201`.
+  - Body: `{"id": "optional", "name": "...", "icon": "...", "color": 4282449393, "bookmark_ids": ["..."]}`
+  - `name` is required. `color` is an ARGB int. If `id` is omitted the server
+    generates one; supplying a stable `id` lets offline-first clients mint IDs
+    locally (a duplicate `id` returns `409`).
+- `GET /api/collections/{id}` — fetch one collection.
+- `PUT /api/collections/{id}` — replace a collection (same body as `POST`).
+- `DELETE /api/collections/{id}` — delete a collection; returns `204`.
+
+Creating a collection also records an entry in the activity feed and a
 notification for the owner.
 
 ### Uploads

@@ -36,6 +36,7 @@ func main() {
 	users := sqlite.NewUserRepository(db)
 	refreshTokens := sqlite.NewRefreshTokenRepository(db)
 	bookmarksRepo := sqlite.NewBookmarkRepository(db)
+	collectionsRepo := sqlite.NewCollectionRepository(db)
 	notificationsRepo := sqlite.NewNotificationRepository(db)
 	activitiesRepo := sqlite.NewActivityRepository(db)
 
@@ -47,10 +48,11 @@ func main() {
 	// Use cases (service layer).
 	auth := service.NewAuthService(users, refreshTokens, hasher, issuer, ids, accessTokenTTL, refreshTokenTTL)
 	bookmarks := service.NewBookmarkService(bookmarksRepo, activitiesRepo, notificationsRepo, ids)
+	collections := service.NewCollectionService(collectionsRepo, activitiesRepo, notificationsRepo, ids)
 	notifications := service.NewNotificationService(notificationsRepo, activitiesRepo)
 
 	// HTTP transport (interface-adapter layer).
-	handler := httpapi.New(auth, bookmarks, notifications, issuer, ids, "./uploads")
+	handler := httpapi.New(auth, bookmarks, collections, notifications, issuer, ids, "./uploads")
 
 	log.Printf("listening on %s", addr)
 	if err := http.ListenAndServe(addr, handler); err != nil {

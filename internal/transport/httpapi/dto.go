@@ -109,6 +109,57 @@ func (req bookmarkRequest) toInput() service.BookmarkInput {
 	}
 }
 
+type collectionDTO struct {
+	ID          string    `json:"id"`
+	OwnerID     string    `json:"owner_id"`
+	Name        string    `json:"name"`
+	Icon        string    `json:"icon"`
+	Color       int       `json:"color"`
+	BookmarkIDs []string  `json:"bookmark_ids"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func toCollectionDTO(c domain.Collection) collectionDTO {
+	return collectionDTO{
+		ID:          c.ID,
+		OwnerID:     c.OwnerID,
+		Name:        c.Name,
+		Icon:        c.Icon,
+		Color:       c.Color,
+		BookmarkIDs: c.BookmarkIDs,
+		CreatedAt:   c.CreatedAt,
+		UpdatedAt:   c.UpdatedAt,
+	}
+}
+
+func toCollectionDTOs(cs []domain.Collection) []collectionDTO {
+	out := make([]collectionDTO, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, toCollectionDTO(c))
+	}
+	return out
+}
+
+// collectionRequest is the create/update payload. ID is honored only on create.
+type collectionRequest struct {
+	ID          string   `json:"id,omitempty"`
+	Name        string   `json:"name"`
+	Icon        string   `json:"icon"`
+	Color       int      `json:"color"`
+	BookmarkIDs []string `json:"bookmark_ids"`
+}
+
+func (req collectionRequest) toInput() service.CollectionInput {
+	return service.CollectionInput{
+		ID:          req.ID,
+		Name:        req.Name,
+		Icon:        req.Icon,
+		Color:       req.Color,
+		BookmarkIDs: req.BookmarkIDs,
+	}
+}
+
 type notificationDTO struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`

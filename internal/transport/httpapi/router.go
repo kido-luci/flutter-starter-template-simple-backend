@@ -17,6 +17,7 @@ import (
 type Router struct {
 	auth          *service.AuthService
 	bookmarks     *service.BookmarkService
+	collections   *service.CollectionService
 	notifications *service.NotificationService
 	tokens        service.TokenIssuer
 	ids           service.IDGenerator
@@ -27,6 +28,7 @@ type Router struct {
 func New(
 	auth *service.AuthService,
 	bookmarks *service.BookmarkService,
+	collections *service.CollectionService,
 	notifications *service.NotificationService,
 	tokens service.TokenIssuer,
 	ids service.IDGenerator,
@@ -35,6 +37,7 @@ func New(
 	rt := &Router{
 		auth:          auth,
 		bookmarks:     bookmarks,
+		collections:   collections,
 		notifications: notifications,
 		tokens:        tokens,
 		ids:           ids,
@@ -80,6 +83,15 @@ func New(
 		r.Get("/{id}", rt.handleGetBookmark)
 		r.Put("/{id}", rt.handleUpdateBookmark)
 		r.Delete("/{id}", rt.handleDeleteBookmark)
+	})
+
+	r.Route("/api/collections", func(r chi.Router) {
+		r.Use(rt.authMiddleware)
+		r.Get("/", rt.handleListCollections)
+		r.Post("/", rt.handleCreateCollection)
+		r.Get("/{id}", rt.handleGetCollection)
+		r.Put("/{id}", rt.handleUpdateCollection)
+		r.Delete("/{id}", rt.handleDeleteCollection)
 	})
 
 	r.Get("/api/notifications", rt.authenticated(rt.handleListNotifications))
