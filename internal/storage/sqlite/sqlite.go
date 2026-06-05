@@ -61,7 +61,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		name TEXT NOT NULL,
 		icon TEXT,
 		color INTEGER NOT NULL DEFAULT 0,
-		bookmark_ids TEXT,
+		bookmark_ids TEXT NOT NULL DEFAULT '[]',
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
 	);

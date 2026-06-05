@@ -27,6 +27,15 @@ func newCollectionFixture() *collectionFixture {
 	return f
 }
 
+func (f *collectionFixture) mustCreate(t *testing.T, in service.CollectionInput) domain.Collection {
+	t.Helper()
+	c, err := f.svc.Create("owner-1", in)
+	if err != nil {
+		t.Fatalf("setup Create failed: %v", err)
+	}
+	return c
+}
+
 func TestCollectionService_Create_GeneratesID_NormalizesAndRecordsSideEffects(t *testing.T) {
 	f := newCollectionFixture()
 
@@ -101,7 +110,7 @@ func TestCollectionService_Create_RequiresName(t *testing.T) {
 
 func TestCollectionService_Update_OverwritesOwnedCollection(t *testing.T) {
 	f := newCollectionFixture()
-	created, _ := f.svc.Create("owner-1", service.CollectionInput{Name: "Old", BookmarkIDs: []string{"b1"}})
+	created := f.mustCreate(t, service.CollectionInput{Name: "Old", BookmarkIDs: []string{"b1"}})
 
 	updated, err := f.svc.Update(created.ID, "owner-1", service.CollectionInput{
 		Name:        "New",
@@ -131,7 +140,7 @@ func TestCollectionService_Update_MissingIsNotFound(t *testing.T) {
 
 func TestCollectionService_Delete_ScopesToOwner(t *testing.T) {
 	f := newCollectionFixture()
-	created, _ := f.svc.Create("owner-1", service.CollectionInput{Name: "A"})
+	created := f.mustCreate(t, service.CollectionInput{Name: "A"})
 
 	if err := f.svc.Delete(created.ID, "other"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("delete by non-owner = %v, want ErrNotFound", err)

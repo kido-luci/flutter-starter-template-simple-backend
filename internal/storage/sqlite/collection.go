@@ -60,12 +60,14 @@ func (r *CollectionRepository) GetOwned(id, ownerID string) (domain.Collection, 
 }
 
 func (r *CollectionRepository) Create(c domain.Collection) error {
-	ids, _ := json.Marshal(c.BookmarkIDs)
-	_, err := r.db.Exec(
+	ids, err := json.Marshal(c.BookmarkIDs)
+	if err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(
 		"INSERT INTO collections ("+collectionColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		c.ID, c.OwnerID, c.Name, c.Icon, c.Color, string(ids), c.CreatedAt, c.UpdatedAt,
-	)
-	if err != nil {
+	); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return domain.ErrConflict
 		}
@@ -75,7 +77,10 @@ func (r *CollectionRepository) Create(c domain.Collection) error {
 }
 
 func (r *CollectionRepository) Update(c domain.Collection) error {
-	ids, _ := json.Marshal(c.BookmarkIDs)
+	ids, err := json.Marshal(c.BookmarkIDs)
+	if err != nil {
+		return err
+	}
 	res, err := r.db.Exec(
 		"UPDATE collections SET name = ?, icon = ?, color = ?, bookmark_ids = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
 		c.Name, c.Icon, c.Color, string(ids), c.UpdatedAt, c.ID, c.OwnerID,
@@ -110,13 +115,18 @@ func (r *CollectionRepository) Delete(id, ownerID string) error {
 
 func scanCollection(s scanner) (domain.Collection, error) {
 	var c domain.Collection
-	var idsJSON string
+	var idsJSON sql.NullString
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &c.Name, &c.Icon, &c.Color, &idsJSON, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return domain.Collection{}, err
 	}
-	if err := json.Unmarshal([]byte(idsJSON), &c.BookmarkIDs); err != nil {
+	// Tolerate NULL/empty membership columns (legacy rows) by defaulting to [].
+	raw := idsJSON.String
+	if !idsJSON.Valid || raw == "" {
+		raw = "[]"
+	}
+	if err := json.Unmarshal([]byte(raw), &c.BookmarkIDs); err != nil {
 		return domain.Collection{}, err
 	}
 	if c.BookmarkIDs == nil {
