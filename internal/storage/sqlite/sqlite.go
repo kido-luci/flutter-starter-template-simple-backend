@@ -55,6 +55,17 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		updated_at DATETIME NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS collections (
+		id TEXT PRIMARY KEY,
+		owner_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		icon TEXT,
+		color INTEGER NOT NULL DEFAULT 0,
+		bookmark_ids TEXT NOT NULL DEFAULT '[]',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+
 	CREATE TABLE IF NOT EXISTS activities (
 		id TEXT PRIMARY KEY,
 		owner_id TEXT NOT NULL,

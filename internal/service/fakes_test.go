@@ -224,6 +224,66 @@ func (r *fakeBookmarkRepo) Delete(id, ownerID string) error {
 	return nil
 }
 
+// --- CollectionRepository ---
+
+type fakeCollectionRepo struct {
+	items     map[string]domain.Collection // keyed by id
+	createErr error
+	updateErr error
+}
+
+var _ domain.CollectionRepository = (*fakeCollectionRepo)(nil)
+
+func newFakeCollectionRepo() *fakeCollectionRepo {
+	return &fakeCollectionRepo{items: map[string]domain.Collection{}}
+}
+
+func (r *fakeCollectionRepo) ListByOwner(ownerID string) ([]domain.Collection, error) {
+	out := make([]domain.Collection, 0)
+	for _, c := range r.items {
+		if c.OwnerID == ownerID {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeCollectionRepo) GetOwned(id, ownerID string) (domain.Collection, error) {
+	c, ok := r.items[id]
+	if !ok || c.OwnerID != ownerID {
+		return domain.Collection{}, domain.ErrNotFound
+	}
+	return c, nil
+}
+
+func (r *fakeCollectionRepo) Create(c domain.Collection) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
+	if _, ok := r.items[c.ID]; ok {
+		return domain.ErrConflict
+	}
+	r.items[c.ID] = c
+	return nil
+}
+
+func (r *fakeCollectionRepo) Update(c domain.Collection) error {
+	if r.updateErr != nil {
+		return r.updateErr
+	}
+	r.items[c.ID] = c
+	return nil
+}
+
+func (r *fakeCollectionRepo) Delete(id, ownerID string) error {
+	c, ok := r.items[id]
+	if !ok || c.OwnerID != ownerID {
+		return domain.ErrNotFound
+	}
+	delete(r.items, id)
+	return nil
+}
+
 // --- ActivityRepository ---
 
 type ownedActivity struct {
