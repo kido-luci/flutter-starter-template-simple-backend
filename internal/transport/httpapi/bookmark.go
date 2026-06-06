@@ -12,21 +12,28 @@ import (
 
 func (rt *Router) handleListBookmarks(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	list, err := rt.listBookmarks(r, u.ID)
+	since, present, ok := sinceCursor(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "since must be a non-negative integer.")
+		return
+	}
+
+	var (
+		list []domain.Bookmark
+		err  error
+	)
+	// A ?since cursor requests the delta (rows changed after that revision,
+	// including tombstones); its absence requests the full live list.
+	if present {
+		list, err = rt.bookmarks.ListSince(u.ID, since)
+	} else {
+		list, err = rt.bookmarks.List(u.ID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to fetch bookmarks.")
 		return
 	}
 	writeJSON(w, http.StatusOK, toBookmarkDTOs(list))
-}
-
-// listBookmarks serves either a full live list or, when a ?since cursor is
-// present, the delta of rows (including tombstones) changed after that revision.
-func (rt *Router) listBookmarks(r *http.Request, ownerID string) ([]domain.Bookmark, error) {
-	if since, ok := sinceCursor(r); ok {
-		return rt.bookmarks.ListSince(ownerID, since)
-	}
-	return rt.bookmarks.List(ownerID)
 }
 
 func (rt *Router) handleGetBookmark(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +77,12 @@ func (rt *Router) handleUpdateBookmark(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_body", "Request body is not valid JSON.")
 		return
 	}
-	b, err := rt.bookmarks.Update(chi.URLParam(r, "id"), u.ID, req.toInput(), expectedRev(r))
+	rev, ok := expectedRev(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "X-Expected-Rev must be a non-negative integer.")
+		return
+	}
+	b, err := rt.bookmarks.Update(chi.URLParam(r, "id"), u.ID, req.toInput(), rev)
 	var ve domain.ValidationError
 	switch {
 	case errors.As(err, &ve):
@@ -88,7 +100,12 @@ func (rt *Router) handleUpdateBookmark(w http.ResponseWriter, r *http.Request) {
 
 func (rt *Router) handleDeleteBookmark(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	err := rt.bookmarks.Delete(chi.URLParam(r, "id"), u.ID, expectedRev(r))
+	rev, ok := expectedRev(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "X-Expected-Rev must be a non-negative integer.")
+		return
+	}
+	err := rt.bookmarks.Delete(chi.URLParam(r, "id"), u.ID, rev)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Bookmark not found.")

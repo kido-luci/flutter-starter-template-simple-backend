@@ -3,6 +3,7 @@ package service_test
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"simple_backend_server/internal/domain"
@@ -195,6 +196,8 @@ func (r *fakeBookmarkRepo) ListByOwnerSince(ownerID string, since int) ([]domain
 			out = append(out, b)
 		}
 	}
+	// Mirror the SQLite repo's `ORDER BY rev ASC` so callers see the same order.
+	sort.Slice(out, func(i, j int) bool { return out[i].Rev < out[j].Rev })
 	return out, nil
 }
 
@@ -290,6 +293,8 @@ func (r *fakeCollectionRepo) ListByOwnerSince(ownerID string, since int) ([]doma
 			out = append(out, c)
 		}
 	}
+	// Mirror the SQLite repo's `ORDER BY rev ASC` so callers see the same order.
+	sort.Slice(out, func(i, j int) bool { return out[i].Rev < out[j].Rev })
 	return out, nil
 }
 
