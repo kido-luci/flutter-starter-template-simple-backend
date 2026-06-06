@@ -51,16 +51,18 @@ type refreshRequest struct {
 }
 
 type bookmarkDTO struct {
-	ID          string    `json:"id"`
-	OwnerID     string    `json:"owner_id"`
-	Title       string    `json:"title"`
-	URL         string    `json:"url"`
-	Description string    `json:"description"`
-	Tags        []string  `json:"tags"`
-	ImageURLs   []string  `json:"image_urls"`
-	VideoURL    string    `json:"video_url"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	OwnerID     string     `json:"owner_id"`
+	Title       string     `json:"title"`
+	URL         string     `json:"url"`
+	Description string     `json:"description"`
+	Tags        []string   `json:"tags"`
+	ImageURLs   []string   `json:"image_urls"`
+	VideoURL    string     `json:"video_url"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Rev         int        `json:"rev"`
+	DeletedAt   *time.Time `json:"deleted_at"`
 }
 
 func toBookmarkDTO(b domain.Bookmark) bookmarkDTO {
@@ -75,6 +77,8 @@ func toBookmarkDTO(b domain.Bookmark) bookmarkDTO {
 		VideoURL:    b.VideoURL,
 		CreatedAt:   b.CreatedAt,
 		UpdatedAt:   b.UpdatedAt,
+		Rev:         b.Rev,
+		DeletedAt:   b.DeletedAt,
 	}
 }
 
@@ -110,14 +114,16 @@ func (req bookmarkRequest) toInput() service.BookmarkInput {
 }
 
 type collectionDTO struct {
-	ID          string    `json:"id"`
-	OwnerID     string    `json:"owner_id"`
-	Name        string    `json:"name"`
-	Icon        string    `json:"icon"`
-	Color       int       `json:"color"`
-	BookmarkIDs []string  `json:"bookmark_ids"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	OwnerID     string     `json:"owner_id"`
+	Name        string     `json:"name"`
+	Icon        string     `json:"icon"`
+	Color       int        `json:"color"`
+	BookmarkIDs []string   `json:"bookmark_ids"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Rev         int        `json:"rev"`
+	DeletedAt   *time.Time `json:"deleted_at"`
 }
 
 func toCollectionDTO(c domain.Collection) collectionDTO {
@@ -130,6 +136,8 @@ func toCollectionDTO(c domain.Collection) collectionDTO {
 		BookmarkIDs: c.BookmarkIDs,
 		CreatedAt:   c.CreatedAt,
 		UpdatedAt:   c.UpdatedAt,
+		Rev:         c.Rev,
+		DeletedAt:   c.DeletedAt,
 	}
 }
 

@@ -48,6 +48,12 @@ func (s *BookmarkService) List(ownerID string) ([]domain.Bookmark, error) {
 	return s.bookmarks.ListByOwner(ownerID)
 }
 
+// ListSince returns the owner's bookmarks (including tombstones) changed after
+// the given revision cursor, for offline-first delta sync.
+func (s *BookmarkService) ListSince(ownerID string, since int) ([]domain.Bookmark, error) {
+	return s.bookmarks.ListByOwnerSince(ownerID, since)
+}
+
 func (s *BookmarkService) Get(id, ownerID string) (domain.Bookmark, error) {
 	return s.bookmarks.GetOwned(id, ownerID)
 }
@@ -80,17 +86,20 @@ func (s *BookmarkService) Create(ownerID string, in BookmarkInput) (domain.Bookm
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.bookmarks.Create(b); err != nil {
+	stored, err := s.bookmarks.Create(b)
+	if err != nil {
 		return domain.Bookmark{}, err
 	}
-	s.recordCreation(ownerID, b)
-	return b, nil
+	s.recordCreation(ownerID, stored)
+	return stored, nil
 }
 
-// Update overwrites an existing bookmark's fields. It returns a
+// Update overwrites an existing bookmark's fields. expectedRev, when non-zero,
+// is the revision the client based its edit on; if the stored row has moved on,
+// the repository returns domain.ErrConflict. It returns a
 // domain.ValidationError for missing fields and domain.ErrNotFound when the
 // bookmark does not exist for the owner.
-func (s *BookmarkService) Update(id, ownerID string, in BookmarkInput) (domain.Bookmark, error) {
+func (s *BookmarkService) Update(id, ownerID string, in BookmarkInput, expectedRev int) (domain.Bookmark, error) {
 	if err := validateBookmark(in); err != nil {
 		return domain.Bookmark{}, err
 	}
@@ -105,14 +114,17 @@ func (s *BookmarkService) Update(id, ownerID string, in BookmarkInput) (domain.B
 	existing.ImageURLs = nonNil(in.ImageURLs)
 	existing.VideoURL = in.VideoURL
 	existing.UpdatedAt = s.now().UTC()
-	if err := s.bookmarks.Update(existing); err != nil {
+	stored, err := s.bookmarks.Update(existing, expectedRev)
+	if err != nil {
 		return domain.Bookmark{}, err
 	}
-	return existing, nil
+	return stored, nil
 }
 
-func (s *BookmarkService) Delete(id, ownerID string) error {
-	return s.bookmarks.Delete(id, ownerID)
+// Delete soft-deletes (tombstones) a bookmark. expectedRev follows the same
+// optimistic-concurrency rule as Update.
+func (s *BookmarkService) Delete(id, ownerID string, expectedRev int) error {
+	return s.bookmarks.Delete(id, ownerID, expectedRev)
 }
 
 // recordCreation writes the activity-feed entry and notification that

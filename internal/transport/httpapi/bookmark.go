@@ -12,12 +12,21 @@ import (
 
 func (rt *Router) handleListBookmarks(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	list, err := rt.bookmarks.List(u.ID)
+	list, err := rt.listBookmarks(r, u.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to fetch bookmarks.")
 		return
 	}
 	writeJSON(w, http.StatusOK, toBookmarkDTOs(list))
+}
+
+// listBookmarks serves either a full live list or, when a ?since cursor is
+// present, the delta of rows (including tombstones) changed after that revision.
+func (rt *Router) listBookmarks(r *http.Request, ownerID string) ([]domain.Bookmark, error) {
+	if since, ok := sinceCursor(r); ok {
+		return rt.bookmarks.ListSince(ownerID, since)
+	}
+	return rt.bookmarks.List(ownerID)
 }
 
 func (rt *Router) handleGetBookmark(w http.ResponseWriter, r *http.Request) {
@@ -61,13 +70,15 @@ func (rt *Router) handleUpdateBookmark(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_body", "Request body is not valid JSON.")
 		return
 	}
-	b, err := rt.bookmarks.Update(chi.URLParam(r, "id"), u.ID, req.toInput())
+	b, err := rt.bookmarks.Update(chi.URLParam(r, "id"), u.ID, req.toInput(), expectedRev(r))
 	var ve domain.ValidationError
 	switch {
 	case errors.As(err, &ve):
 		writeError(w, http.StatusBadRequest, "invalid_input", ve.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Bookmark not found.")
+	case errors.Is(err, domain.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict", "Bookmark was modified on the server.")
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "update_failed", "Failed to update bookmark.")
 	default:
@@ -77,10 +88,12 @@ func (rt *Router) handleUpdateBookmark(w http.ResponseWriter, r *http.Request) {
 
 func (rt *Router) handleDeleteBookmark(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	err := rt.bookmarks.Delete(chi.URLParam(r, "id"), u.ID)
+	err := rt.bookmarks.Delete(chi.URLParam(r, "id"), u.ID, expectedRev(r))
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Bookmark not found.")
+	case errors.Is(err, domain.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict", "Bookmark was modified on the server.")
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete bookmark.")
 	default:

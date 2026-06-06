@@ -46,6 +46,12 @@ func (s *CollectionService) List(ownerID string) ([]domain.Collection, error) {
 	return s.collections.ListByOwner(ownerID)
 }
 
+// ListSince returns the owner's collections (including tombstones) changed
+// after the given revision cursor, for offline-first delta sync.
+func (s *CollectionService) ListSince(ownerID string, since int) ([]domain.Collection, error) {
+	return s.collections.ListByOwnerSince(ownerID, since)
+}
+
 func (s *CollectionService) Get(id, ownerID string) (domain.Collection, error) {
 	return s.collections.GetOwned(id, ownerID)
 }
@@ -78,17 +84,18 @@ func (s *CollectionService) Create(ownerID string, in CollectionInput) (domain.C
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.collections.Create(c); err != nil {
+	stored, err := s.collections.Create(c)
+	if err != nil {
 		return domain.Collection{}, err
 	}
-	s.recordCreation(ownerID, c)
-	return c, nil
+	s.recordCreation(ownerID, stored)
+	return stored, nil
 }
 
 // Update overwrites an existing collection's fields. It returns a
 // domain.ValidationError for missing fields and domain.ErrNotFound when the
 // collection does not exist for the owner.
-func (s *CollectionService) Update(id, ownerID string, in CollectionInput) (domain.Collection, error) {
+func (s *CollectionService) Update(id, ownerID string, in CollectionInput, expectedRev int) (domain.Collection, error) {
 	if err := validateCollection(in); err != nil {
 		return domain.Collection{}, err
 	}
@@ -101,14 +108,17 @@ func (s *CollectionService) Update(id, ownerID string, in CollectionInput) (doma
 	existing.Color = in.Color
 	existing.BookmarkIDs = normalizeTags(in.BookmarkIDs)
 	existing.UpdatedAt = s.now().UTC()
-	if err := s.collections.Update(existing); err != nil {
+	stored, err := s.collections.Update(existing, expectedRev)
+	if err != nil {
 		return domain.Collection{}, err
 	}
-	return existing, nil
+	return stored, nil
 }
 
-func (s *CollectionService) Delete(id, ownerID string) error {
-	return s.collections.Delete(id, ownerID)
+// Delete soft-deletes (tombstones) a collection. expectedRev follows the same
+// optimistic-concurrency rule as Update.
+func (s *CollectionService) Delete(id, ownerID string, expectedRev int) error {
+	return s.collections.Delete(id, ownerID, expectedRev)
 }
 
 // recordCreation writes the activity-feed entry and notification that
