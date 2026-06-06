@@ -86,7 +86,7 @@ func TestBookmarkRepository_RoundTripWithJSONFields(t *testing.T) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := repo.Create(b); err != nil {
+	if _, err := repo.Create(b); err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestBookmarkRepository_EmptyJSONFieldsDecodeToNonNil(t *testing.T) {
 		ID: "bm1", OwnerID: "owner-1", Title: "T", URL: "https://x",
 		Tags: []string{}, ImageURLs: []string{}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := repo.Create(b); err != nil {
+	if _, err := repo.Create(b); err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
@@ -129,20 +129,20 @@ func TestBookmarkRepository_NotFoundAndConflictAndOwnerScoping(t *testing.T) {
 	repo := sqlite.NewBookmarkRepository(newTestDB(t))
 	now := time.Now().UTC()
 	b := domain.Bookmark{ID: "bm1", OwnerID: "owner-1", Title: "T", URL: "https://x", Tags: []string{}, ImageURLs: []string{}, CreatedAt: now, UpdatedAt: now}
-	if err := repo.Create(b); err != nil {
+	if _, err := repo.Create(b); err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if err := repo.Create(b); !errors.Is(err, domain.ErrConflict) {
+	if _, err := repo.Create(b); !errors.Is(err, domain.ErrConflict) {
 		t.Errorf("duplicate id err = %v, want domain.ErrConflict", err)
 	}
 	if _, err := repo.GetOwned("bm1", "intruder"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("cross-owner GetOwned err = %v, want domain.ErrNotFound", err)
 	}
-	if err := repo.Delete("bm1", "intruder"); !errors.Is(err, domain.ErrNotFound) {
+	if err := repo.Delete("bm1", "intruder", 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("cross-owner Delete err = %v, want domain.ErrNotFound", err)
 	}
-	if err := repo.Delete("bm1", "owner-1"); err != nil {
+	if err := repo.Delete("bm1", "owner-1", 0); err != nil {
 		t.Errorf("owner Delete failed: %v", err)
 	}
 }
@@ -154,8 +154,121 @@ func TestBookmarkRepository_UpdateMissingRowIsNotFound(t *testing.T) {
 
 	// Updating a row that was never created must report not-found rather than
 	// silently succeeding (guards the Get-then-Update race).
-	if err := repo.Update(b); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := repo.Update(b, 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Update of missing row err = %v, want domain.ErrNotFound", err)
+	}
+}
+
+func bookmark(id, owner string) domain.Bookmark {
+	now := time.Now().UTC()
+	return domain.Bookmark{
+		ID: id, OwnerID: owner, Title: "T", URL: "https://x",
+		Tags: []string{}, ImageURLs: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+}
+
+func TestBookmarkRepository_RevIncrementsPerOwnerAcrossWrites(t *testing.T) {
+	repo := sqlite.NewBookmarkRepository(newTestDB(t))
+
+	a, err := repo.Create(bookmark("a", "owner-1"))
+	if err != nil {
+		t.Fatalf("Create a: %v", err)
+	}
+	b, err := repo.Create(bookmark("b", "owner-1"))
+	if err != nil {
+		t.Fatalf("Create b: %v", err)
+	}
+	if a.Rev != 1 || b.Rev != 2 {
+		t.Fatalf("create revs = %d, %d, want 1, 2", a.Rev, b.Rev)
+	}
+
+	updated, err := repo.Update(a, 0)
+	if err != nil {
+		t.Fatalf("Update a: %v", err)
+	}
+	if updated.Rev != 3 {
+		t.Errorf("updated rev = %d, want 3 (max+1)", updated.Rev)
+	}
+
+	// A second owner's revisions are independent.
+	other, err := repo.Create(bookmark("c", "owner-2"))
+	if err != nil {
+		t.Fatalf("Create c: %v", err)
+	}
+	if other.Rev != 1 {
+		t.Errorf("other-owner first rev = %d, want 1", other.Rev)
+	}
+}
+
+func TestBookmarkRepository_SoftDeleteTombstonesAndSurfacesInDelta(t *testing.T) {
+	repo := sqlite.NewBookmarkRepository(newTestDB(t))
+	created, err := repo.Create(bookmark("a", "owner-1"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := repo.Delete("a", "owner-1", 0); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// Excluded from the live list and from GetOwned...
+	live, err := repo.ListByOwner("owner-1")
+	if err != nil {
+		t.Fatalf("ListByOwner: %v", err)
+	}
+	if len(live) != 0 {
+		t.Errorf("live list = %v, want empty after soft delete", live)
+	}
+	if _, err := repo.GetOwned("a", "owner-1"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("GetOwned after delete = %v, want ErrNotFound", err)
+	}
+
+	// ...but the tombstone surfaces in a delta pull from before the delete.
+	delta, err := repo.ListByOwnerSince("owner-1", created.Rev)
+	if err != nil {
+		t.Fatalf("ListByOwnerSince: %v", err)
+	}
+	if len(delta) != 1 || delta[0].DeletedAt == nil {
+		t.Fatalf("delta = %+v, want one tombstoned row", delta)
+	}
+}
+
+func TestBookmarkRepository_DeltaReturnsOnlyNewerRows(t *testing.T) {
+	repo := sqlite.NewBookmarkRepository(newTestDB(t))
+	a, err := repo.Create(bookmark("a", "owner-1"))
+	if err != nil {
+		t.Fatalf("Create a: %v", err)
+	}
+	if _, err := repo.Create(bookmark("b", "owner-1")); err != nil {
+		t.Fatalf("Create b: %v", err)
+	}
+
+	delta, err := repo.ListByOwnerSince("owner-1", a.Rev)
+	if err != nil {
+		t.Fatalf("ListByOwnerSince: %v", err)
+	}
+	if len(delta) != 1 || delta[0].ID != "b" {
+		t.Errorf("delta after rev %d = %+v, want only b", a.Rev, delta)
+	}
+}
+
+func TestBookmarkRepository_UpdateWithStaleRevConflicts(t *testing.T) {
+	repo := sqlite.NewBookmarkRepository(newTestDB(t))
+	created, err := repo.Create(bookmark("a", "owner-1"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Advance the row so its rev moves past what an offline client based its
+	// edit on.
+	if _, err := repo.Update(created, 0); err != nil {
+		t.Fatalf("first Update: %v", err)
+	}
+
+	if _, err := repo.Update(created, created.Rev); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("stale-rev Update err = %v, want ErrConflict", err)
+	}
+	if err := repo.Delete("a", "owner-1", created.Rev); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("stale-rev Delete err = %v, want ErrConflict", err)
 	}
 }
 

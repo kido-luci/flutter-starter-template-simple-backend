@@ -151,7 +151,7 @@ func TestBookmarkService_Update_Success(t *testing.T) {
 
 	updated, err := f.svc.Update("bm1", "owner-1", service.BookmarkInput{
 		Title: "New", URL: "https://new", Tags: []string{"x", "x"},
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("Update returned error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestBookmarkService_Update_Success(t *testing.T) {
 func TestBookmarkService_Update_NotFound(t *testing.T) {
 	f := newBookmarkFixture()
 
-	_, err := f.svc.Update("ghost", "owner-1", service.BookmarkInput{Title: "T", URL: "https://x"})
+	_, err := f.svc.Update("ghost", "owner-1", service.BookmarkInput{Title: "T", URL: "https://x"}, 0)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err = %v, want domain.ErrNotFound", err)
 	}
@@ -184,7 +184,7 @@ func TestBookmarkService_Update_OtherOwnerIsNotFound(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	_, err := f.svc.Update("bm1", "intruder", service.BookmarkInput{Title: "T", URL: "https://x"})
+	_, err := f.svc.Update("bm1", "intruder", service.BookmarkInput{Title: "T", URL: "https://x"}, 0)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("err = %v, want domain.ErrNotFound for cross-owner update", err)
 	}
@@ -193,7 +193,7 @@ func TestBookmarkService_Update_OtherOwnerIsNotFound(t *testing.T) {
 func TestBookmarkService_Update_Validation(t *testing.T) {
 	f := newBookmarkFixture()
 
-	_, err := f.svc.Update("bm1", "owner-1", service.BookmarkInput{Title: "", URL: "https://x"})
+	_, err := f.svc.Update("bm1", "owner-1", service.BookmarkInput{Title: "", URL: "https://x"}, 0)
 	var ve domain.ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("err = %v, want domain.ValidationError", err)
@@ -206,14 +206,16 @@ func TestBookmarkService_Delete(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if err := f.svc.Delete("bm1", "owner-1"); err != nil {
+	if err := f.svc.Delete("bm1", "owner-1", 0); err != nil {
 		t.Fatalf("Delete returned error: %v", err)
 	}
-	if _, ok := f.bookmarks.items["bm1"]; ok {
-		t.Error("bookmark should be removed")
+	// Soft delete: the row is tombstoned (kept for delta sync) but no longer
+	// surfaces as a live bookmark.
+	if _, err := f.svc.Get("bm1", "owner-1"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("deleted bookmark Get err = %v, want domain.ErrNotFound", err)
 	}
 
-	if err := f.svc.Delete("bm1", "owner-1"); !errors.Is(err, domain.ErrNotFound) {
+	if err := f.svc.Delete("bm1", "owner-1", 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("second Delete err = %v, want domain.ErrNotFound", err)
 	}
 }

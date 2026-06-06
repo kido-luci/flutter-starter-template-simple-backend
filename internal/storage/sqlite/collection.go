@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"simple_backend_server/internal/domain"
 )
 
-const collectionColumns = "id, owner_id, name, icon, color, bookmark_ids, created_at, updated_at"
+const collectionColumns = "id, owner_id, name, icon, color, bookmark_ids, created_at, updated_at, rev, deleted_at"
+
+const nextCollectionRev = "(SELECT COALESCE(MAX(rev), 0) + 1 FROM collections WHERE owner_id = ?)"
 
 // CollectionRepository is the SQLite-backed domain.CollectionRepository. The
 // bookmark-id slice is stored as a JSON text column.
@@ -24,10 +27,21 @@ func NewCollectionRepository(db *sql.DB) *CollectionRepository {
 }
 
 func (r *CollectionRepository) ListByOwner(ownerID string) ([]domain.Collection, error) {
-	rows, err := r.db.Query(
-		"SELECT "+collectionColumns+" FROM collections WHERE owner_id = ? ORDER BY created_at DESC",
+	return r.queryCollections(
+		"SELECT "+collectionColumns+" FROM collections WHERE owner_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
 		ownerID,
 	)
+}
+
+func (r *CollectionRepository) ListByOwnerSince(ownerID string, since int) ([]domain.Collection, error) {
+	return r.queryCollections(
+		"SELECT "+collectionColumns+" FROM collections WHERE owner_id = ? AND rev > ? ORDER BY rev ASC",
+		ownerID, since,
+	)
+}
+
+func (r *CollectionRepository) queryCollections(query string, args ...any) ([]domain.Collection, error) {
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +60,7 @@ func (r *CollectionRepository) ListByOwner(ownerID string) ([]domain.Collection,
 
 func (r *CollectionRepository) GetOwned(id, ownerID string) (domain.Collection, error) {
 	row := r.db.QueryRow(
-		"SELECT "+collectionColumns+" FROM collections WHERE id = ? AND owner_id = ?",
+		"SELECT "+collectionColumns+" FROM collections WHERE id = ? AND owner_id = ? AND deleted_at IS NULL",
 		id, ownerID,
 	)
 	c, err := scanCollection(row)
@@ -59,32 +73,60 @@ func (r *CollectionRepository) GetOwned(id, ownerID string) (domain.Collection, 
 	return c, nil
 }
 
-func (r *CollectionRepository) Create(c domain.Collection) error {
+func (r *CollectionRepository) Create(c domain.Collection) (domain.Collection, error) {
 	ids, err := json.Marshal(c.BookmarkIDs)
 	if err != nil {
-		return err
+		return domain.Collection{}, err
 	}
-	if _, err := r.db.Exec(
-		"INSERT INTO collections ("+collectionColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		c.ID, c.OwnerID, c.Name, c.Icon, c.Color, string(ids), c.CreatedAt, c.UpdatedAt,
-	); err != nil {
+	err = r.db.QueryRow(
+		"INSERT INTO collections ("+collectionColumns+") "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, "+nextCollectionRev+", NULL) RETURNING rev",
+		c.ID, c.OwnerID, c.Name, c.Icon, c.Color, string(ids), c.CreatedAt, c.UpdatedAt, c.OwnerID,
+	).Scan(&c.Rev)
+	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return domain.ErrConflict
+			return domain.Collection{}, domain.ErrConflict
 		}
-		return err
+		return domain.Collection{}, err
 	}
-	return nil
+	return c, nil
 }
 
-func (r *CollectionRepository) Update(c domain.Collection) error {
+func (r *CollectionRepository) Update(c domain.Collection, expectedRev int) (domain.Collection, error) {
 	ids, err := json.Marshal(c.BookmarkIDs)
 	if err != nil {
-		return err
+		return domain.Collection{}, err
 	}
-	res, err := r.db.Exec(
-		"UPDATE collections SET name = ?, icon = ?, color = ?, bookmark_ids = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
-		c.Name, c.Icon, c.Color, string(ids), c.UpdatedAt, c.ID, c.OwnerID,
-	)
+	query := "UPDATE collections SET name = ?, icon = ?, color = ?, bookmark_ids = ?, updated_at = ?, rev = " + nextCollectionRev +
+		" WHERE id = ? AND owner_id = ? AND deleted_at IS NULL"
+	args := []any{c.Name, c.Icon, c.Color, string(ids), c.UpdatedAt, c.OwnerID, c.ID, c.OwnerID}
+	if expectedRev != 0 {
+		query += " AND rev = ?"
+		args = append(args, expectedRev)
+	}
+	query += " RETURNING rev"
+
+	err = r.db.QueryRow(query, args...).Scan(&c.Rev)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Collection{}, r.writeMiss(c.ID, c.OwnerID)
+	}
+	if err != nil {
+		return domain.Collection{}, err
+	}
+	return c, nil
+}
+
+func (r *CollectionRepository) Delete(id, ownerID string, expectedRev int) error {
+	now := time.Now().UTC()
+	query := "UPDATE collections SET deleted_at = ?, rev = " + nextCollectionRev +
+		" WHERE id = ? AND owner_id = ? AND deleted_at IS NULL"
+	args := []any{now, ownerID, id, ownerID}
+	if expectedRev != 0 {
+		query += " AND rev = ?"
+		args = append(args, expectedRev)
+	}
+
+	res, err := r.db.Exec(query, args...)
 	if err != nil {
 		return err
 	}
@@ -93,31 +135,32 @@ func (r *CollectionRepository) Update(c domain.Collection) error {
 		return err
 	}
 	if affected == 0 {
-		return domain.ErrNotFound
+		return r.writeMiss(id, ownerID)
 	}
 	return nil
 }
 
-func (r *CollectionRepository) Delete(id, ownerID string) error {
-	res, err := r.db.Exec("DELETE FROM collections WHERE id = ? AND owner_id = ?", id, ownerID)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
+func (r *CollectionRepository) writeMiss(id, ownerID string) error {
+	var rev int
+	err := r.db.QueryRow(
+		"SELECT rev FROM collections WHERE id = ? AND owner_id = ? AND deleted_at IS NULL",
+		id, ownerID,
+	).Scan(&rev)
+	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ErrNotFound
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	return domain.ErrConflict
 }
 
 func scanCollection(s scanner) (domain.Collection, error) {
 	var c domain.Collection
 	var idsJSON sql.NullString
+	var deletedAt sql.NullTime
 	if err := s.Scan(
-		&c.ID, &c.OwnerID, &c.Name, &c.Icon, &c.Color, &idsJSON, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.OwnerID, &c.Name, &c.Icon, &c.Color, &idsJSON, &c.CreatedAt, &c.UpdatedAt, &c.Rev, &deletedAt,
 	); err != nil {
 		return domain.Collection{}, err
 	}
@@ -131,6 +174,10 @@ func scanCollection(s scanner) (domain.Collection, error) {
 	}
 	if c.BookmarkIDs == nil {
 		c.BookmarkIDs = []string{}
+	}
+	if deletedAt.Valid {
+		t := deletedAt.Time.UTC()
+		c.DeletedAt = &t
 	}
 	return c, nil
 }

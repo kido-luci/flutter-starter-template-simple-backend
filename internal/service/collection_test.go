@@ -117,7 +117,7 @@ func TestCollectionService_Update_OverwritesOwnedCollection(t *testing.T) {
 		Icon:        "f02d",
 		Color:       0xFF10B981,
 		BookmarkIDs: []string{"b2", "b3"},
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("Update error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestCollectionService_Update_OverwritesOwnedCollection(t *testing.T) {
 func TestCollectionService_Update_MissingIsNotFound(t *testing.T) {
 	f := newCollectionFixture()
 
-	_, err := f.svc.Update("missing", "owner-1", service.CollectionInput{Name: "X"})
+	_, err := f.svc.Update("missing", "owner-1", service.CollectionInput{Name: "X"}, 0)
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("error = %v, want ErrNotFound", err)
 	}
@@ -142,10 +142,10 @@ func TestCollectionService_Delete_ScopesToOwner(t *testing.T) {
 	f := newCollectionFixture()
 	created := f.mustCreate(t, service.CollectionInput{Name: "A"})
 
-	if err := f.svc.Delete(created.ID, "other"); !errors.Is(err, domain.ErrNotFound) {
+	if err := f.svc.Delete(created.ID, "other", 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("delete by non-owner = %v, want ErrNotFound", err)
 	}
-	if err := f.svc.Delete(created.ID, "owner-1"); err != nil {
+	if err := f.svc.Delete(created.ID, "owner-1", 0); err != nil {
 		t.Errorf("delete by owner = %v, want nil", err)
 	}
 }

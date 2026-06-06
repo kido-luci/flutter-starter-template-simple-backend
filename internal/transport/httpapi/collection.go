@@ -12,7 +12,23 @@ import (
 
 func (rt *Router) handleListCollections(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	list, err := rt.collections.List(u.ID)
+	since, present, ok := sinceCursor(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "since must be a non-negative integer.")
+		return
+	}
+
+	var (
+		list []domain.Collection
+		err  error
+	)
+	// A ?since cursor requests the delta (rows changed after that revision,
+	// including tombstones); its absence requests the full live list.
+	if present {
+		list, err = rt.collections.ListSince(u.ID, since)
+	} else {
+		list, err = rt.collections.List(u.ID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to fetch collections.")
 		return
@@ -61,13 +77,20 @@ func (rt *Router) handleUpdateCollection(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid_body", "Request body is not valid JSON.")
 		return
 	}
-	c, err := rt.collections.Update(chi.URLParam(r, "id"), u.ID, req.toInput())
+	rev, ok := expectedRev(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "X-Expected-Rev must be a non-negative integer.")
+		return
+	}
+	c, err := rt.collections.Update(chi.URLParam(r, "id"), u.ID, req.toInput(), rev)
 	var ve domain.ValidationError
 	switch {
 	case errors.As(err, &ve):
 		writeError(w, http.StatusBadRequest, "invalid_input", ve.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Collection not found.")
+	case errors.Is(err, domain.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict", "Collection was modified on the server.")
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "update_failed", "Failed to update collection.")
 	default:
@@ -77,10 +100,17 @@ func (rt *Router) handleUpdateCollection(w http.ResponseWriter, r *http.Request)
 
 func (rt *Router) handleDeleteCollection(w http.ResponseWriter, r *http.Request) {
 	u, _ := userFrom(r)
-	err := rt.collections.Delete(chi.URLParam(r, "id"), u.ID)
+	rev, ok := expectedRev(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "X-Expected-Rev must be a non-negative integer.")
+		return
+	}
+	err := rt.collections.Delete(chi.URLParam(r, "id"), u.ID, rev)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Collection not found.")
+	case errors.Is(err, domain.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict", "Collection was modified on the server.")
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete collection.")
 	default:

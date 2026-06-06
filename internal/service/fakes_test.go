@@ -3,6 +3,7 @@ package service_test
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"simple_backend_server/internal/domain"
@@ -181,46 +182,83 @@ func newFakeBookmarkRepo() *fakeBookmarkRepo {
 func (r *fakeBookmarkRepo) ListByOwner(ownerID string) ([]domain.Bookmark, error) {
 	out := make([]domain.Bookmark, 0)
 	for _, b := range r.items {
-		if b.OwnerID == ownerID {
+		if b.OwnerID == ownerID && b.DeletedAt == nil {
 			out = append(out, b)
 		}
 	}
 	return out, nil
 }
 
+func (r *fakeBookmarkRepo) ListByOwnerSince(ownerID string, since int) ([]domain.Bookmark, error) {
+	out := make([]domain.Bookmark, 0)
+	for _, b := range r.items {
+		if b.OwnerID == ownerID && b.Rev > since {
+			out = append(out, b)
+		}
+	}
+	// Mirror the SQLite repo's `ORDER BY rev ASC` so callers see the same order.
+	sort.Slice(out, func(i, j int) bool { return out[i].Rev < out[j].Rev })
+	return out, nil
+}
+
 func (r *fakeBookmarkRepo) GetOwned(id, ownerID string) (domain.Bookmark, error) {
 	b, ok := r.items[id]
-	if !ok || b.OwnerID != ownerID {
+	if !ok || b.OwnerID != ownerID || b.DeletedAt != nil {
 		return domain.Bookmark{}, domain.ErrNotFound
 	}
 	return b, nil
 }
 
-func (r *fakeBookmarkRepo) Create(b domain.Bookmark) error {
+func (r *fakeBookmarkRepo) nextRev(ownerID string) int {
+	max := 0
+	for _, b := range r.items {
+		if b.OwnerID == ownerID && b.Rev > max {
+			max = b.Rev
+		}
+	}
+	return max + 1
+}
+
+func (r *fakeBookmarkRepo) Create(b domain.Bookmark) (domain.Bookmark, error) {
 	if r.createErr != nil {
-		return r.createErr
+		return domain.Bookmark{}, r.createErr
 	}
 	if _, ok := r.items[b.ID]; ok {
-		return domain.ErrConflict
+		return domain.Bookmark{}, domain.ErrConflict
 	}
+	b.Rev = r.nextRev(b.OwnerID)
 	r.items[b.ID] = b
-	return nil
+	return b, nil
 }
 
-func (r *fakeBookmarkRepo) Update(b domain.Bookmark) error {
+func (r *fakeBookmarkRepo) Update(b domain.Bookmark, expectedRev int) (domain.Bookmark, error) {
 	if r.updateErr != nil {
-		return r.updateErr
+		return domain.Bookmark{}, r.updateErr
 	}
+	current, ok := r.items[b.ID]
+	if !ok || current.OwnerID != b.OwnerID || current.DeletedAt != nil {
+		return domain.Bookmark{}, domain.ErrNotFound
+	}
+	if expectedRev != 0 && current.Rev != expectedRev {
+		return domain.Bookmark{}, domain.ErrConflict
+	}
+	b.Rev = r.nextRev(b.OwnerID)
 	r.items[b.ID] = b
-	return nil
+	return b, nil
 }
 
-func (r *fakeBookmarkRepo) Delete(id, ownerID string) error {
+func (r *fakeBookmarkRepo) Delete(id, ownerID string, expectedRev int) error {
 	b, ok := r.items[id]
-	if !ok || b.OwnerID != ownerID {
+	if !ok || b.OwnerID != ownerID || b.DeletedAt != nil {
 		return domain.ErrNotFound
 	}
-	delete(r.items, id)
+	if expectedRev != 0 && b.Rev != expectedRev {
+		return domain.ErrConflict
+	}
+	now := time.Now().UTC()
+	b.DeletedAt = &now
+	b.Rev = r.nextRev(ownerID)
+	r.items[id] = b
 	return nil
 }
 
@@ -241,46 +279,83 @@ func newFakeCollectionRepo() *fakeCollectionRepo {
 func (r *fakeCollectionRepo) ListByOwner(ownerID string) ([]domain.Collection, error) {
 	out := make([]domain.Collection, 0)
 	for _, c := range r.items {
-		if c.OwnerID == ownerID {
+		if c.OwnerID == ownerID && c.DeletedAt == nil {
 			out = append(out, c)
 		}
 	}
 	return out, nil
 }
 
+func (r *fakeCollectionRepo) ListByOwnerSince(ownerID string, since int) ([]domain.Collection, error) {
+	out := make([]domain.Collection, 0)
+	for _, c := range r.items {
+		if c.OwnerID == ownerID && c.Rev > since {
+			out = append(out, c)
+		}
+	}
+	// Mirror the SQLite repo's `ORDER BY rev ASC` so callers see the same order.
+	sort.Slice(out, func(i, j int) bool { return out[i].Rev < out[j].Rev })
+	return out, nil
+}
+
 func (r *fakeCollectionRepo) GetOwned(id, ownerID string) (domain.Collection, error) {
 	c, ok := r.items[id]
-	if !ok || c.OwnerID != ownerID {
+	if !ok || c.OwnerID != ownerID || c.DeletedAt != nil {
 		return domain.Collection{}, domain.ErrNotFound
 	}
 	return c, nil
 }
 
-func (r *fakeCollectionRepo) Create(c domain.Collection) error {
+func (r *fakeCollectionRepo) nextRev(ownerID string) int {
+	max := 0
+	for _, c := range r.items {
+		if c.OwnerID == ownerID && c.Rev > max {
+			max = c.Rev
+		}
+	}
+	return max + 1
+}
+
+func (r *fakeCollectionRepo) Create(c domain.Collection) (domain.Collection, error) {
 	if r.createErr != nil {
-		return r.createErr
+		return domain.Collection{}, r.createErr
 	}
 	if _, ok := r.items[c.ID]; ok {
-		return domain.ErrConflict
+		return domain.Collection{}, domain.ErrConflict
 	}
+	c.Rev = r.nextRev(c.OwnerID)
 	r.items[c.ID] = c
-	return nil
+	return c, nil
 }
 
-func (r *fakeCollectionRepo) Update(c domain.Collection) error {
+func (r *fakeCollectionRepo) Update(c domain.Collection, expectedRev int) (domain.Collection, error) {
 	if r.updateErr != nil {
-		return r.updateErr
+		return domain.Collection{}, r.updateErr
 	}
+	current, ok := r.items[c.ID]
+	if !ok || current.OwnerID != c.OwnerID || current.DeletedAt != nil {
+		return domain.Collection{}, domain.ErrNotFound
+	}
+	if expectedRev != 0 && current.Rev != expectedRev {
+		return domain.Collection{}, domain.ErrConflict
+	}
+	c.Rev = r.nextRev(c.OwnerID)
 	r.items[c.ID] = c
-	return nil
+	return c, nil
 }
 
-func (r *fakeCollectionRepo) Delete(id, ownerID string) error {
+func (r *fakeCollectionRepo) Delete(id, ownerID string, expectedRev int) error {
 	c, ok := r.items[id]
-	if !ok || c.OwnerID != ownerID {
+	if !ok || c.OwnerID != ownerID || c.DeletedAt != nil {
 		return domain.ErrNotFound
 	}
-	delete(r.items, id)
+	if expectedRev != 0 && c.Rev != expectedRev {
+		return domain.ErrConflict
+	}
+	now := time.Now().UTC()
+	c.DeletedAt = &now
+	c.Rev = r.nextRev(ownerID)
+	r.items[id] = c
 	return nil
 }
 

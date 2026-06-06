@@ -23,7 +23,7 @@ func TestCollectionRepository_RoundTripWithJSONMembership(t *testing.T) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := repo.Create(c); err != nil {
+	if _, err := repo.Create(c); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
@@ -44,7 +44,7 @@ func TestCollectionRepository_EmptyMembershipDecodesToNonNil(t *testing.T) {
 	now := time.Now().UTC()
 
 	c := domain.Collection{ID: "c1", OwnerID: "o", Name: "N", BookmarkIDs: []string{}, CreatedAt: now, UpdatedAt: now}
-	if err := repo.Create(c); err != nil {
+	if _, err := repo.Create(c); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 	got, err := repo.GetOwned("c1", "o")
@@ -60,17 +60,17 @@ func TestCollectionRepository_NotFoundConflictAndOwnerScoping(t *testing.T) {
 	repo := sqlite.NewCollectionRepository(newTestDB(t))
 	now := time.Now().UTC()
 	c := domain.Collection{ID: "c1", OwnerID: "owner-1", Name: "N", BookmarkIDs: []string{}, CreatedAt: now, UpdatedAt: now}
-	if err := repo.Create(c); err != nil {
+	if _, err := repo.Create(c); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	if err := repo.Create(c); !errors.Is(err, domain.ErrConflict) {
+	if _, err := repo.Create(c); !errors.Is(err, domain.ErrConflict) {
 		t.Errorf("duplicate Create = %v, want ErrConflict", err)
 	}
 	if _, err := repo.GetOwned("c1", "other"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("cross-owner Get = %v, want ErrNotFound", err)
 	}
-	if err := repo.Delete("c1", "other"); !errors.Is(err, domain.ErrNotFound) {
+	if err := repo.Delete("c1", "other", 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("cross-owner Delete = %v, want ErrNotFound", err)
 	}
 }
@@ -79,7 +79,7 @@ func TestCollectionRepository_UpdateMissingRowIsNotFound(t *testing.T) {
 	repo := sqlite.NewCollectionRepository(newTestDB(t))
 	now := time.Now().UTC()
 	c := domain.Collection{ID: "missing", OwnerID: "owner-1", Name: "N", BookmarkIDs: []string{}, CreatedAt: now, UpdatedAt: now}
-	if err := repo.Update(c); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := repo.Update(c, 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Update missing = %v, want ErrNotFound", err)
 	}
 }
